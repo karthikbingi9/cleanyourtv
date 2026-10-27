@@ -1,0 +1,264 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_NAME 100
+#define DATA_FILE "bank_data.bin"
+
+// --- Custom Structures ---
+typedef struct {
+    int accountNumber;
+    char name[MAX_NAME];
+    double balance;
+    int isActive;
+} Account;
+
+typedef struct {
+    Account *accounts;
+    int count;
+    int capacity;
+} BankDatabase;
+
+// --- Function Prototypes ---
+void initDatabase(BankDatabase *db);
+void freeDatabase(BankDatabase *db);
+void loadDatabase(BankDatabase *db);
+void saveDatabase(const BankDatabase *db);
+void createAccount(BankDatabase *db);
+void depositMoney(BankDatabase *db);
+void withdrawMoney(BankDatabase *db);
+void displayAllAccounts(const BankDatabase *db);
+int findAccountIndex(const BankDatabase *db, int accNum);
+void clearInputBuffer();
+
+// --- Main Execution Loop ---
+int main() {
+    BankDatabase db;
+    initDatabase(&db);
+    loadDatabase(&db);
+
+    int choice;
+    do {
+        printf("\n===================================\n");
+        printf("    ENTERPRISE BANK SYSTEM v1.0    \n");
+        printf("===================================\n");
+        printf("1. Create New Account\n");
+        printf("2. Deposit Funds\n");
+        printf("3. Withdraw Funds\n");
+        printf("4. View All Accounts\n");
+        printf("5. Save and Exit\n");
+        printf("Enter your choice (1-5): ");
+        
+        if (scanf("%d", &choice) != 1) {
+            printf("Invalid input. Numeric characters only.\n");
+            clearInputBuffer();
+            choice = 0;
+            continue;
+        }
+        clearInputBuffer();
+
+        switch (choice) {
+            case 1: createAccount(&db); break;
+            case 2: depositMoney(&db); break;
+            case 3: withdrawMoney(&db); break;
+            case 4: displayAllAccounts(&db); break;
+            case 5: saveDatabase(&db); printf("Database saved successfully.\n"); break;
+            default: printf("Invalid selection. Please try again.\n");
+        }
+    } while (choice != 5);
+
+    freeDatabase(&db);
+    printf("Goodbye!\n");
+    return 0;
+}
+
+// --- Memory & Database Management ---
+void initDatabase(BankDatabase *db) {
+    db->count = 0;
+    db->capacity = 4; // Start small to demonstrate dynamic expansion
+    db->accounts = (Account *)malloc(db->capacity * sizeof(Account));
+    if (db->accounts == NULL) {
+        perror("Critical Error: Failed to allocate base memory");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void freeDatabase(BankDatabase *db) {
+    free(db->accounts);
+    db->accounts = NULL;
+    db->count = 0;
+    db->capacity = 0;
+}
+
+// --- Binary File I/O Framework ---
+void loadDatabase(BankDatabase *db) {
+    FILE *file = fopen(DATA_FILE, "rb");
+    if (!file) {
+        printf("No existing system database found. Creating a clean record.\n");
+        return;
+    }
+
+    while (1) {
+        if (db->count >= db->capacity) {
+            db->capacity *= 2;
+            db->accounts = (Account *)realloc(db->accounts, db->capacity * sizeof(Account));
+            if (!db->accounts) {
+                perror("Critical Error: Memory allocation failure during load");
+                fclose(file);
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        Account temp;
+        if (fread(&temp, sizeof(Account), 1, file) != 1) break;
+        
+        if (temp.isActive) {
+            db->accounts[db->count++] = temp;
+        }
+    }
+    fclose(file);
+    printf("Successfully loaded %d active accounts from system storage.\n", db->count);
+}
+
+void saveDatabase(const BankDatabase *db) {
+    FILE *file = fopen(DATA_FILE, "wb");
+    if (!file) {
+        perror("Error preserving system data securely");
+        return;
+    }
+
+    for (int i = 0; i < db->count; i++) {
+        if (db->accounts[i].isActive) {
+            fwrite(&db->accounts[i], sizeof(Account), 1, file);
+        }
+    }
+    fclose(file);
+}
+
+// --- Core Core Banking Functions ---
+void createAccount(BankDatabase *db) {
+    if (db->count >= db->capacity) {
+        db->capacity *= 2;
+        db->accounts = (Account *)realloc(db->accounts, db->capacity * sizeof(Account));
+        if (!db->accounts) {
+            perror("Error: Out of memory expansion limit reached");
+            return;
+        }
+    }
+
+    Account newAcc;
+    printf("\nEnter New Account Number: ");
+    scanf("%d", &newAcc.accountNumber);
+    clearInputBuffer();
+
+    if (findAccountIndex(db, newAcc.accountNumber) != -1) {
+        printf("Validation Failed: That account number already exists.\n");
+        return;
+    }
+
+    printf("Enter Cardholder Name: ");
+    fgets(newAcc.name, MAX_NAME, stdin);
+    newAcc.name[strcspn(newAcc.name, "\n")] = '\0'; // Strip trailing newline
+
+    printf("Enter Initial Deposit: $");
+    scanf("%lf", &newAcc.balance);
+    clearInputBuffer();
+
+    if (newAcc.balance < 0) {
+        printf("Validation Failed: Opening balance cannot be negative.\n");
+        return;
+    }
+
+    newAcc.isActive = 1;
+    db->accounts[db->count++] = newAcc;
+    printf("Account registration completed successfully.\n");
+}
+
+void depositMoney(BankDatabase *db) {
+    int accNum;
+    double amount;
+
+    printf("\nEnter Account Number: ");
+    scanf("%d", &accNum);
+    
+    int index = findAccountIndex(db, accNum);
+    if (index == -1) {
+        printf("Error: Record not found.\n");
+        return;
+    }
+
+    printf("Enter Amount to Deposit: $");
+    scanf("%lf", &amount);
+    
+    if (amount <= 0) {
+        printf("Transaction Denied: Deposit must be greater than $0.\n");
+        return;
+    }
+
+    db->accounts[index].balance += amount;
+    printf("Deposit processed. New Balance: $%.2f\n", db->accounts[index].balance);
+}
+
+void withdrawMoney(BankDatabase *db) {
+    int accNum;
+    double amount;
+
+    printf("\nEnter Account Number: ");
+    scanf("%d", &accNum);
+    
+    int index = findAccountIndex(db, accNum);
+    if (index == -1) {
+        printf("Error: Record not found.\n");
+        return;
+    }
+
+    printf("Enter Amount to Withdraw: $");
+    scanf("%lf", &amount);
+    
+    if (amount <= 0) {
+        printf("Transaction Denied: Withdrawal must be greater than $0.\n");
+        return;
+    }
+
+    if (db->accounts[index].balance < amount) {
+        printf("Transaction Denied: Insufficient funds available.\n");
+        return;
+    }
+
+    db->accounts[index].balance -= amount;
+    printf("Withdrawal processed. New Balance: $%.2f\n", db->accounts[index].balance);
+}
+
+void displayAllAccounts(const BankDatabase *db) {
+    if (db->count == 0) {
+        printf("\nThe database is currently empty.\n");
+        return;
+    }
+
+    printf("\n%-15s %-30s %-15s\n", "Account No.", "Account Holder Name", "Balance");
+    printf("-------------------------------------------------------------\n");
+    for (int i = 0; i < db->count; i++) {
+        if (db->accounts[i].isActive) {
+            printf("%-15d %-30s $%-14.2f\n", 
+                   db->accounts[i].accountNumber, 
+                   db->accounts[i].name, 
+                   db->accounts[i].balance);
+        }
+    }
+}
+
+// --- Utility Functions ---
+int findAccountIndex(const BankDatabase *db, int accNum) {
+    for (int i = 0; i < db->count; i++) {
+        if (db->accounts[i].accountNumber == accNum && db->accounts[i].isActive) {
+            return i; // Found matching record index
+        }
+    }
+    return -1; // Element not found
+}
+
+void clearInputBuffer() {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+
